@@ -32,9 +32,15 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Quick Start (Windows)
+1. Run `create_shortcut.ps1` to create a desktop shortcut
+2. Double-click **CNC Image Tool** on your desktop to launch
+
+### Manual Start
 Run the application:
 ```bash
 python src/main.py
+# or simply double-click launch.bat
 ```
 
 ### Workflow:
