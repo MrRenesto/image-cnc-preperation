@@ -16,6 +16,12 @@ class CNCImageApp:
         self.original_image = None
         self.current_image = None
         self.display_image = None
+        self.zoom_level = 1.0  # 1.0 = 100%, 0.5 = 50%, 2.0 = 200%
+        
+        # Pan state
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+        self.is_panning = False
         
         # Create UI
         self.create_ui()
@@ -47,6 +53,15 @@ class CNCImageApp:
                             command=self.save_image, width=20, height=2)
         btn_save.pack(pady=10)
         
+        # Zoom level indicator
+        self.zoom_label = tk.Label(control_frame, text="Zoom: 100%", 
+                                  bg="#f0f0f0", font=("Arial", 10))
+        self.zoom_label.pack(pady=(30, 10))
+        
+        zoom_hint = tk.Label(control_frame, text="Use mouse wheel to zoom\nClick & drag to pan", 
+                           bg="#f0f0f0", font=("Arial", 9), fg="#666666")
+        zoom_hint.pack(pady=5)
+        
         # Reset button
         btn_reset = tk.Button(control_frame, text="Reset to Original", 
                              command=self.reset_image, width=20, height=2,
@@ -65,6 +80,14 @@ class CNCImageApp:
         # Canvas for image display
         self.canvas = tk.Canvas(display_frame, bg="#e0e0e0")
         self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Bind mouse events
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)  # Windows/Mac
+        self.canvas.bind("<Button-4>", self.on_mouse_wheel)    # Linux scroll up
+        self.canvas.bind("<Button-5>", self.on_mouse_wheel)    # Linux scroll down
+        self.canvas.bind("<ButtonPress-1>", self.on_pan_start)
+        self.canvas.bind("<B1-Motion>", self.on_pan_move)
+        self.canvas.bind("<ButtonRelease-1>", self.on_pan_end)
         
         # Add scrollbars
         h_scrollbar = tk.Scrollbar(display_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
@@ -123,6 +146,7 @@ class CNCImageApp:
             return
         
         self.current_image = self.original_image.copy()
+        self.zoom_level = 1.0
         self.display_current_image()
         self.update_status("Reset to original")
     
@@ -145,6 +169,59 @@ class CNCImageApp:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save: {str(e)}")
     
+    def on_mouse_wheel(self, event):
+        """Handle mouse wheel zoom."""
+        if self.current_image is None:
+            return
+        
+        # Get mouse position on canvas
+        mouse_x = self.canvas.canvasx(event.x)
+        mouse_y = self.canvas.canvasy(event.y)
+        
+        # Determine zoom direction
+        if event.num == 5 or event.delta < 0:  # Scroll down
+            zoom_factor = 0.9
+        else:  # Scroll up
+            zoom_factor = 1.1
+        
+        # Calculate new zoom level
+        old_zoom = self.zoom_level
+        self.zoom_level = max(0.1, min(self.zoom_level * zoom_factor, 5.0))
+        
+        # Only update if zoom changed
+        if self.zoom_level != old_zoom:
+            self.display_current_image()
+            
+            # Adjust scroll position to zoom toward mouse cursor
+            if self.zoom_level > old_zoom:
+                scale = self.zoom_level / old_zoom
+                new_x = mouse_x * scale - event.x
+                new_y = mouse_y * scale - event.y
+                self.canvas.xview_moveto(new_x / (self.canvas.winfo_width() * scale))
+                self.canvas.yview_moveto(new_y / (self.canvas.winfo_height() * scale))
+    
+    def on_pan_start(self, event):
+        """Start panning with mouse."""
+        if self.current_image is None:
+            return
+        
+        self.is_panning = True
+        self.canvas.scan_mark(event.x, event.y)
+        self.canvas.config(cursor="fleur")  # Change cursor to move icon
+    
+    def on_pan_move(self, event):
+        """Pan the image with mouse drag."""
+        if not self.is_panning or self.current_image is None:
+            return
+        
+        # Scroll the canvas based on drag
+        self.canvas.scan_dragto(event.x, event.y, gain=1)
+        
+    def on_pan_end(self, event):
+        """End panning."""
+        self.is_panning = False
+        self.canvas.config(cursor="")
+    
     def display_current_image(self):
         """Display the current image on canvas."""
         if self.current_image is None:
@@ -159,10 +236,13 @@ class CNCImageApp:
         # Convert to PIL Image
         pil_image = Image.fromarray(display_img)
         
-        # Resize if too large (max 800x600)
-        max_width, max_height = 800, 600
-        if pil_image.width > max_width or pil_image.height > max_height:
-            pil_image.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+        # Apply zoom level
+        new_width = int(pil_image.width * self.zoom_level)
+        new_height = int(pil_image.height * self.zoom_level)
+        
+        # Only resize if dimensions are reasonable
+        if new_width > 0 and new_height > 0:
+            pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
         # Convert to PhotoImage
         self.display_image = ImageTk.PhotoImage(pil_image)
@@ -171,6 +251,9 @@ class CNCImageApp:
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.display_image)
         self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+        
+        # Update zoom label
+        self.zoom_label.config(text=f"Zoom: {int(self.zoom_level * 100)}%")
     
     def update_status(self, message):
         """Update status label."""
