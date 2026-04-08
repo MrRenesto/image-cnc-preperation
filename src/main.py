@@ -1,9 +1,13 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 import cv2
 import numpy as np
-from image_processor import load_image, convert_to_bw, detect_edges_canny
+from image_processor import (
+    load_image, convert_to_bw, 
+    detect_edges_canny, detect_edges_sobel, detect_edges_laplacian,
+    detect_edges_prewitt, detect_edges_scharr, detect_edges_contour
+)
 
 
 class CNCImageApp:
@@ -44,6 +48,21 @@ class CNCImageApp:
         btn_bw = tk.Button(control_frame, text="Convert to B&W", 
                           command=self.convert_bw, width=20, height=2)
         btn_bw.pack(pady=10)
+        
+        # Edge detection algorithm selector
+        algo_label = tk.Label(control_frame, text="Edge Detection:", 
+                             font=("Arial", 10, "bold"), bg="#f0f0f0")
+        algo_label.pack(pady=(10, 5))
+        
+        self.algorithm_var = tk.StringVar(value="Canny")
+        self.algorithm_combo = ttk.Combobox(
+            control_frame, 
+            textvariable=self.algorithm_var,
+            values=["Canny", "Sobel", "Laplacian", "Prewitt", "Scharr", "Contour"],
+            state="readonly",
+            width=18
+        )
+        self.algorithm_combo.pack(pady=5)
         
         btn_edges = tk.Button(control_frame, text="Detect Edges", 
                              command=self.detect_edges, width=20, height=2)
@@ -127,15 +146,30 @@ class CNCImageApp:
             messagebox.showerror("Error", f"Failed to convert: {str(e)}")
     
     def detect_edges(self):
-        """Apply Canny edge detection."""
+        """Apply selected edge detection algorithm."""
         if self.current_image is None:
             messagebox.showwarning("Warning", "Please load an image first!")
             return
         
         try:
-            self.current_image = detect_edges_canny(self.current_image)
+            algorithm = self.algorithm_var.get()
+            
+            # Apply the selected algorithm
+            if algorithm == "Canny":
+                self.current_image = detect_edges_canny(self.current_image)
+            elif algorithm == "Sobel":
+                self.current_image = detect_edges_sobel(self.current_image)
+            elif algorithm == "Laplacian":
+                self.current_image = detect_edges_laplacian(self.current_image)
+            elif algorithm == "Prewitt":
+                self.current_image = detect_edges_prewitt(self.current_image)
+            elif algorithm == "Scharr":
+                self.current_image = detect_edges_scharr(self.current_image)
+            elif algorithm == "Contour":
+                self.current_image = detect_edges_contour(self.current_image)
+            
             self.display_current_image()
-            self.update_status("Applied edge detection")
+            self.update_status(f"Applied {algorithm} edge detection")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to detect edges: {str(e)}")
     
