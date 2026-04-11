@@ -26,6 +26,12 @@ class CNCImageApp:
         # Pan state
         self.is_panning = False
         
+        # ROI selection state
+        self.selection_mode = False
+        self.roi_start_canvas = None
+        self.roi_end_canvas = None
+        self.selected_roi_image = None
+        
         # Create UI
         self.create_ui()
     
@@ -89,6 +95,18 @@ class CNCImageApp:
                              command=self.detect_edges, width=20, height=2)
         btn_edges.pack(pady=10)
         
+        btn_select_roi = tk.Button(parent, text="Select Object (ROI)", 
+                                  command=self.enable_roi_selection, width=20, height=2)
+        btn_select_roi.pack(pady=(10, 5))
+        
+        btn_clear_roi = tk.Button(parent, text="Clear Selection", 
+                                 command=self.clear_roi_selection, width=20, height=2)
+        btn_clear_roi.pack(pady=(5, 10))
+        
+        btn_line_art = tk.Button(parent, text="Generate Line Art", 
+                                command=self.generate_line_art, width=20, height=2)
+        btn_line_art.pack(pady=(5, 10))
+        
         btn_save = tk.Button(parent, text="Save PNG", 
                             command=self.save_image, width=20, height=2)
         btn_save.pack(pady=10)
@@ -142,6 +160,10 @@ class CNCImageApp:
             try:
                 self.original_image = self.image_service.load_image(filepath)
                 self.current_image = self.original_image.copy()
+                self.selection_mode = False
+                self.selected_roi_image = None
+                self.roi_start_canvas = None
+                self.roi_end_canvas = None
                 self.display_current_image()
                 filename = filepath.split('/')[-1].split('\\')[-1]
                 self.update_status(f"Loaded: {filename}")
@@ -156,6 +178,8 @@ class CNCImageApp:
         
         try:
             self.current_image = self.image_service.convert_to_bw(self.current_image)
+            self.selected_roi_image = None
+            self.selection_mode = False
             self.display_current_image()
             self.update_status("Converted to B&W")
         except Exception as e:
@@ -172,6 +196,8 @@ class CNCImageApp:
             self.current_image = self.image_service.detect_edges(
                 self.current_image, algorithm
             )
+            self.selected_roi_image = None
+            self.selection_mode = False
             self.display_current_image()
             self.update_status(f"Applied {algorithm} edge detection")
         except Exception as e:
@@ -185,6 +211,10 @@ class CNCImageApp:
         
         self.current_image = self.original_image.copy()
         self.zoom_level = 1.0
+        self.selection_mode = False
+        self.selected_roi_image = None
+        self.roi_start_canvas = None
+        self.roi_end_canvas = None
         self.display_current_image()
         self.update_status("Reset to original")
     
@@ -236,19 +266,64 @@ class CNCImageApp:
         if self.current_image is None:
             return
         
+        if self.selection_mode:
+            self.roi_start_canvas = (
+                self.canvas.canvasx(event.x),
+                self.canvas.canvasy(event.y),
+            )
+            self.roi_end_canvas = self.roi_start_canvas
+            self.display_current_image()
+            return
+        
         self.is_panning = True
         self.canvas.scan_mark(event.x, event.y)
         self.canvas.config(cursor="fleur")
     
     def on_pan_move(self, event):
         """Pan the image with mouse drag."""
-        if not self.is_panning or self.current_image is None:
+        if self.current_image is None:
+            return
+        
+        if self.selection_mode and self.roi_start_canvas is not None:
+            self.roi_end_canvas = (
+                self.canvas.canvasx(event.x),
+                self.canvas.canvasy(event.y),
+            )
+            self.display_current_image()
+            return
+        
+        if not self.is_panning:
             return
         
         self.canvas.scan_dragto(event.x, event.y, gain=1)
     
     def on_pan_end(self, event):
         """End panning."""
+        if self.current_image is None:
+            return
+        
+        if self.selection_mode and self.roi_start_canvas is not None and self.roi_end_canvas is not None:
+            x1, y1 = self._canvas_to_image_coords(*self.roi_start_canvas)
+            x2, y2 = self._canvas_to_image_coords(*self.roi_end_canvas)
+            x1, x2 = sorted((x1, x2))
+            y1, y2 = sorted((y1, y2))
+            
+            if (x2 - x1) < 2 or (y2 - y1) < 2:
+                self.roi_start_canvas = None
+                self.roi_end_canvas = None
+                self.selected_roi_image = None
+                self.display_current_image()
+                self.update_status("Selection too small. Drag a larger ROI.")
+                return
+            
+            self.selected_roi_image = (x1, y1, x2, y2)
+            self.selection_mode = False
+            self.roi_start_canvas = None
+            self.roi_end_canvas = None
+            self.display_current_image()
+            self.update_status(f"ROI selected: {x2 - x1}x{y2 - y1}")
+            return
+        
         self.is_panning = False
         self.canvas.config(cursor="")
     
@@ -276,9 +351,81 @@ class CNCImageApp:
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.display_image)
         self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+        self._draw_roi_overlay()
         
         self.zoom_label.config(text=f"Zoom: {int(self.zoom_level * 100)}%")
     
     def update_status(self, message):
         """Update status label."""
         self.status_label.config(text=message)
+    
+    def enable_roi_selection(self):
+        """Enable rectangle selection mode for object ROI."""
+        if self.current_image is None:
+            messagebox.showwarning("Warning", "Please load and process an image first!")
+            return
+        
+        self.selection_mode = True
+        self.roi_start_canvas = None
+        self.roi_end_canvas = None
+        self.update_status("Selection mode active: drag on image to select object ROI.")
+    
+    def clear_roi_selection(self):
+        """Clear selected ROI and selection mode."""
+        self.selection_mode = False
+        self.roi_start_canvas = None
+        self.roi_end_canvas = None
+        self.selected_roi_image = None
+        self.display_current_image()
+        self.update_status("ROI selection cleared.")
+    
+    def generate_line_art(self):
+        """Generate contour-based line art for selected ROI."""
+        if self.current_image is None:
+            messagebox.showwarning("Warning", "Please load an image first!")
+            return
+        
+        if self.selected_roi_image is None:
+            messagebox.showwarning("Warning", "Please select an object ROI first!")
+            return
+        
+        try:
+            self.current_image, metadata = self.image_service.generate_line_art_from_roi(
+                self.current_image,
+                self.selected_roi_image,
+                min_contour_area=20.0,
+                line_thickness=1,
+                use_morphology=True,
+            )
+            kept = metadata.get("contours_kept", 0)
+            self.display_current_image()
+            self.update_status(f"Generated line art from ROI (contours kept: {kept})")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate line art: {str(e)}")
+    
+    def _canvas_to_image_coords(self, canvas_x, canvas_y):
+        """Convert canvas coordinates to image coordinates with zoom applied."""
+        img_h, img_w = self.current_image.shape[:2]
+        x = int(canvas_x / self.zoom_level)
+        y = int(canvas_y / self.zoom_level)
+        x = max(0, min(x, img_w - 1))
+        y = max(0, min(y, img_h - 1))
+        return x, y
+    
+    def _draw_roi_overlay(self):
+        """Draw active or finalized ROI overlay on canvas."""
+        if self.roi_start_canvas is not None and self.roi_end_canvas is not None:
+            x1, y1 = self.roi_start_canvas
+            x2, y2 = self.roi_end_canvas
+            self.canvas.create_rectangle(x1, y1, x2, y2, outline="#ff3333", width=2, dash=(6, 3))
+        
+        if self.selected_roi_image is not None:
+            x1, y1, x2, y2 = self.selected_roi_image
+            self.canvas.create_rectangle(
+                x1 * self.zoom_level,
+                y1 * self.zoom_level,
+                x2 * self.zoom_level,
+                y2 * self.zoom_level,
+                outline="#33aa33",
+                width=2,
+            )
