@@ -47,7 +47,9 @@ python src/main.py
 1. Click **Load Image** to select an image file
 2. Click **Convert to B&W** to convert the image to black & white
 3. Click **Detect Edges** to apply Canny edge detection
-4. Click **Save PNG** to export the processed image
+4. Click **Select Object (ROI)** and drag a rectangle around your object
+5. Click **Generate Line Art** to extract contour-based line art (outer + inner details)
+6. Click **Save PNG** to export the processed image
 
 ## Requirements
 - Python 3.8 or higher
